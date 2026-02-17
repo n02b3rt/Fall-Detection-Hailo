@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fall Detection System</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Fall Detection System</h1>
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Alarm Banner (hidden by default) -->
+        <div class="alarm-banner hidden" id="alarmBanner">
+            <div class="alarm-content">
+                <div class="alarm-text">
+                    <h2>ALARM! Fall detected!</h2>
+                    <p id="alarmTime"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="content-grid">
+            <!-- Video Feed -->
+            <div class="card video-card">
+                <h2>Live Camera Feed</h2>
+                <div class="video-container">
+                    <img id="videoFeed" src="/video_feed" alt="Camera Feed">
+                    <div class="video-overlay" id="videoOverlay">
+                        <p>Loading camera...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="card status-card">
+                <h2>Status</h2>
+
+                <div class="status-item">
+                    <div class="status-label">System State:</div>
+                    <div class="status-value" id="systemStatus">
+                        <span class="badge badge-success">Active</span>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">Fall Detected:</div>
+                    <div class="status-value" id="fallDetected">
+                        <span class="badge badge-gray">No</span>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">Alarm:</div>
+                    <div class="status-value" id="alarmStatus">
+                        <span class="badge badge-gray">Inactive</span>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">Duration:</div>
+                    <div class="status-value" id="fallDuration">
+                        <span class="duration">0.0s</span>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">Last Last Update:</div>
+                    <div class="status-value" id="lastUpdate">
+                        <span class="time">--:--:--</span>
+                    </div>
+                </div>
+
+                <!-- Info Box -->
+                <div class="info-box">
+                    <p><strong>Info:</strong></p>
+                    <p>Alarm triggers after 1.5s of continuous fall detection.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Fall Detection System • Powered by Hailo-10H</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
