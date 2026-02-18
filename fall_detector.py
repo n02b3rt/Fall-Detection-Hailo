@@ -11,8 +11,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple
 
+import json
+import os
 import config
-
 
 # =============================================================================
 # Data Structures
@@ -31,6 +32,7 @@ class PoseSnapshot:
     is_horizontal_pose: bool  # static pose check
     hip_shoulder_proximity: Optional[float]  # normalized vertical distance
     is_kneeling: bool = False  # kneeling pose detected
+    in_bed_zone: bool = False  # center of mass is inside a bed zone
 
 
 @dataclass
@@ -68,10 +70,30 @@ class FallDetector:
         self._fps_estimate = 30.0
         self._last_timestamp = None
         self._last_kp_data = None  # for kneeling check reuse
+        self._zones = {'bed': [], 'door': []}
+        self.load_zones()
 
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
+
+    def load_zones(self):
+        """Load safe zones from JSON config."""
+        try:
+            with open('zones.json', 'r') as f:
+                self._zones = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self._zones = {'bed': [], 'door': []}
+
+    def save_zones(self, zones):
+        """Save safe zones to JSON config and reload."""
+        with open('zones.json', 'w') as f:
+            json.dump(zones, f)
+        self._zones = zones
+
+    def get_zones(self):
+        """Return current zones."""
+        return self._zones
 
     def update(self, bbox, keypoints, timestamp: Optional[float] = None) -> dict:
         """
@@ -116,6 +138,33 @@ class FallDetector:
         pose_score = self._compute_pose_score(snapshot)
         descent_score = self._compute_descent_score(snapshot)
         stillness_score = self._compute_stillness_score(timestamp)
+
+        # Bed Zone Logic: Suppress fall detection if in bed check
+        if snapshot.in_bed_zone:
+            # Person is sleeping/resting -> Force state to "RESTING" (no alarm)
+            # We override the raw scores to 0
+            velocity_score = 0.0
+            pose_score = 0.0
+            descent_score = 0.0
+            stillness_score = 0.0
+            # Also clear any pending alarm for this person
+            self.fall_state.state = "RESTING"
+            self.fall_state.score = 0.0
+            self.fall_state.alarm_active = False
+            self.fall_state.alert_start_time = None
+            
+            return self._make_result(
+                velocity_score=0.0,
+                pose_score=0.0,
+                descent_score=0.0,
+                stillness_score=0.0,
+                kneeling=0.0,
+                in_bed=1.0,
+            )
+        
+        # If was RESTING but moved out, reset to MONITORING
+        if self.fall_state.state == "RESTING":
+            self.fall_state.state = "MONITORING"
 
         # Kneeling suppression: if kneeling, dampen pose and descent
         if snapshot.is_kneeling:
@@ -162,6 +211,30 @@ class FallDetector:
                 state.person_gone_since = timestamp
 
         if state.person_gone_since is not None:
+            # Check if last seen position was in a Door Zone
+            last_pos = None
+            # Retrieve last valid center of mass or bbox center from history
+            if self.history:
+                last_snap = self.history[-1]
+                if last_snap.center_of_mass:
+                    last_pos = last_snap.center_of_mass
+                else:
+                    last_pos = (0.5, last_snap.bbox_center_y) # Approx x
+            
+            # Use FallState's last known position if history doesn't help
+            # (Note: we should ideally store last pos in state, but let's check history first)
+            
+            # Simplified check: if recently seen in door zone, cancel alarm
+            was_in_door = False
+            if last_pos:
+                was_in_door = self._is_point_in_zones(last_pos, self._zones.get('door', []))
+
+            if was_in_door:
+                # Person walked out the door - logical exit
+                state.state = "MONITORING"
+                state.person_gone_since = None
+                return self._make_result(in_door=1.0)
+
             gone_duration = timestamp - state.person_gone_since
 
             # Escalation: CAUTION after threshold
@@ -222,6 +295,11 @@ class FallDetector:
         kneeling = self._is_kneeling(kp_data, torso_angle)
         self._last_kp_data = kp_data
 
+        # Zone Check
+        in_bed_zone = False
+        if com:
+            in_bed_zone = self._is_point_in_zones(com, self._zones.get('bed', []))
+
         return PoseSnapshot(
             timestamp=timestamp,
             center_of_mass=com,
@@ -233,6 +311,7 @@ class FallDetector:
             is_horizontal_pose=is_horizontal,
             hip_shoulder_proximity=hip_shoulder_prox,
             is_kneeling=kneeling,
+            in_bed_zone=in_bed_zone,
         )
 
     def _extract_keypoints(self, bbox, keypoints) -> dict:
@@ -332,6 +411,16 @@ class FallDetector:
             return abs(avg_h - avg_s)
 
         return None
+
+    def _is_point_in_zones(self, point: Tuple[float, float], zones: List[List[float]]) -> bool:
+        """Check if normalized (x,y) point is inside any of the given zones [x1, y1, x2, y2]."""
+        x, y = point
+        for zone in zones:
+            if len(zone) == 4:
+                x1, y1, x2, y2 = zone
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    return True
+        return False
 
     def _is_kneeling(self, kp_data: dict, torso_angle: Optional[float]) -> bool:
         """
@@ -550,6 +639,11 @@ class FallDetector:
     def _update_state(self, timestamp: float):
         """Update MONITORING -> CAUTION -> ALERT -> ALARM state."""
         state = self.fall_state
+        
+        # If Resting, no alarm progression
+        if state.state == "RESTING":
+            return
+
         score = state.score
 
         if score >= config.CRITICAL_SCORE:

@@ -6,6 +6,14 @@ let socket = null;
 let statusPollInterval = null;
 let isConnected = false;
 
+// Zone Editor State
+let isEditingZones = false;
+let currentZoneType = 'bed'; // 'bed' or 'door'
+let isDrawing = false;
+let startX, startY;
+let zones = { bed: [], door: [] };
+let canvas, ctx;
+
 // =============================================================================
 // WebSocket Connection
 // =============================================================================
@@ -102,6 +110,8 @@ function updateUI(data) {
         fallStateEl.innerHTML = '<span class="badge badge-warning">ALERT</span>';
     } else if (state === 'CAUTION') {
         fallStateEl.innerHTML = '<span class="badge badge-warning">CAUTION</span>';
+    } else if (state === 'RESTING') {
+        fallStateEl.innerHTML = '<span class="badge badge-primary">RESTING</span>';
     } else {
         fallStateEl.innerHTML = '<span class="badge badge-success">MONITORING</span>';
         hideAlarmBanner();
@@ -171,6 +181,161 @@ function showBrowserNotification(title, body) {
 }
 
 // =============================================================================
+// Zone Editor
+// =============================================================================
+
+function initializeZoneEditor() {
+    canvas = document.getElementById('zoneCanvas');
+    ctx = canvas.getContext('2d');
+    const videoFeed = document.getElementById('videoFeed');
+
+    // Sync canvas size to video size
+    canvas.width = videoFeed.clientWidth || 640;
+    canvas.height = videoFeed.clientHeight || 480;
+
+    window.addEventListener('resize', () => {
+        canvas.width = videoFeed.clientWidth || 640;
+        canvas.height = videoFeed.clientHeight || 480;
+        if (isEditingZones) drawZones();
+    });
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+}
+
+function toggleZoneEditor() {
+    const controls = document.getElementById('zoneEditorControls');
+    isEditingZones = !isEditingZones;
+
+    if (isEditingZones) {
+        controls.classList.remove('hidden');
+        canvas.style.pointerEvents = 'auto'; // Enable interaction
+        loadZones(); // Load current zones from backend
+    } else {
+        controls.classList.add('hidden');
+        canvas.style.pointerEvents = 'none'; // Passthrough
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear overlay
+    }
+}
+
+function setZoneType(type) {
+    currentZoneType = type;
+    const btns = document.querySelectorAll('.zone-type-selector button');
+    btns.forEach(btn => btn.classList.remove('active'));
+
+    // Find button by text content or logic (simplified here)
+    if (type === 'bed') btns[0].classList.add('active');
+    if (type === 'door') btns[1].classList.add('active');
+}
+
+async function loadZones() {
+    try {
+        const response = await fetch('/api/zones');
+        zones = await response.json();
+        drawZones();
+    } catch (e) {
+        console.error('Failed to load zones', e);
+    }
+}
+
+async function saveZones() {
+    try {
+        await fetch('/api/zones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(zones)
+        });
+        toggleZoneEditor(); // Close editor
+    } catch (e) {
+        console.error('Failed to save zones', e);
+        alert('Failed to save zones');
+    }
+}
+
+function clearZones() {
+    zones = { bed: [], door: [] };
+    drawZones();
+}
+
+function startDrawing(e) {
+    isDrawing = true;
+    const rect = canvas.getBoundingClientRect();
+    startX = e.clientX - rect.left;
+    startY = e.clientY - rect.top;
+}
+
+function draw(e) {
+    if (!isDrawing) return;
+    drawZones(); // Redraw existing
+
+    const rect = canvas.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+
+    ctx.strokeStyle = currentZoneType === 'bed' ? '#007bff' : '#28a745';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
+}
+
+function stopDrawing(e) {
+    if (!isDrawing) return;
+    isDrawing = false;
+
+    const rect = canvas.getBoundingClientRect();
+    const endX = e.clientX - rect.left;
+    const endY = e.clientY - rect.top;
+
+    // Normalize coordinates (0.0 - 1.0)
+    const x1 = Math.min(startX, endX) / canvas.width;
+    const y1 = Math.min(startY, endY) / canvas.height;
+    const x2 = Math.max(startX, endX) / canvas.width;
+    const y2 = Math.max(startY, endY) / canvas.height;
+
+    // Add new zone if big enough
+    if ((x2 - x1) > 0.05 && (y2 - y1) > 0.05) {
+        zones[currentZoneType].push([x1, y1, x2, y2]);
+    }
+
+    drawZones();
+}
+
+function drawZones() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Bed Zones
+    ctx.strokeStyle = '#007bff';
+    ctx.lineWidth = 2;
+    ctx.fillStyle = 'rgba(0, 123, 255, 0.2)';
+
+    zones.bed.forEach(zone => {
+        const [x1, y1, x2, y2] = zone;
+        const w = (x2 - x1) * canvas.width;
+        const h = (y2 - y1) * canvas.height;
+        ctx.fillRect(x1 * canvas.width, y1 * canvas.height, w, h);
+        ctx.strokeRect(x1 * canvas.width, y1 * canvas.height, w, h);
+        ctx.fillStyle = '#007bff';
+        ctx.fillText('BED', x1 * canvas.width + 5, y1 * canvas.height + 20);
+        ctx.fillStyle = 'rgba(0, 123, 255, 0.2)';
+    });
+
+    // Draw Door Zones
+    ctx.strokeStyle = '#28a745';
+    ctx.fillStyle = 'rgba(40, 167, 69, 0.2)';
+
+    zones.door.forEach(zone => {
+        const [x1, y1, x2, y2] = zone;
+        const w = (x2 - x1) * canvas.width;
+        const h = (y2 - y1) * canvas.height;
+        ctx.fillRect(x1 * canvas.width, y1 * canvas.height, w, h);
+        ctx.strokeRect(x1 * canvas.width, y1 * canvas.height, w, h);
+        ctx.fillStyle = '#28a745';
+        ctx.fillText('DOOR', x1 * canvas.width + 5, y1 * canvas.height + 20);
+        ctx.fillStyle = 'rgba(40, 167, 69, 0.2)';
+    });
+}
+
+// =============================================================================
 // Video Feed
 // =============================================================================
 
@@ -194,9 +359,16 @@ function initializeVideoFeed() {
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeVideoFeed();
+    initializeZoneEditor(); // Initialize canvas
     requestNotificationPermission();
     initializeWebSocket();
     startStatusPolling();
+
+    // Make wrapper functions global for onclick handlers
+    window.toggleZoneEditor = toggleZoneEditor;
+    window.setZoneType = setZoneType;
+    window.saveZones = saveZones;
+    window.clearZones = clearZones;
 });
 
 window.addEventListener('beforeunload', () => {

@@ -34,12 +34,28 @@
         <div class="content-grid">
             <!-- Video Feed -->
             <div class="card video-card">
-                <h2>Live Camera Feed</h2>
+                <!-- Video Container -->
                 <div class="video-container">
-                    <img id="videoFeed" src="/video_feed" alt="Camera Feed">
+                    <img id="videoFeed" src="/video_feed" alt="Live Video Feed">
+                    <canvas id="zoneCanvas"></canvas> <!-- Overlay for drawing zones -->
                     <div class="video-overlay" id="videoOverlay">
-                        <p>Loading camera...</p>
+                        <p>Connecting to camera...</p>
                     </div>
+                </div>
+
+                <!-- Zone Editor Controls (Hidden by default) -->
+                <div id="zoneEditorControls" class="zone-controls hidden">
+                    <div class="zone-type-selector">
+                        <button class="btn btn-sm btn-blue active" onclick="setZoneType('bed')">Bed Zone</button>
+                        <button class="btn btn-sm btn-green" onclick="setZoneType('door')">Door Zone</button>
+                    </div>
+                    <div class="zone-actions">
+                        <button class="btn btn-sm btn-gray" onclick="clearZones()">Clear All</button>
+                        <button class="btn btn-sm btn-primary" onclick="saveZones()">Save & Exit</button>
+                        <button class="btn btn-sm" onclick="toggleZoneEditor()">Cancel</button>
+                    </div>
+                    <div class="zone-help">Drag to draw logic zones. Blue = Sleep/Rest (No Alarm). Green = Exit (No
+                        Disappearance Alarm).</div>
                 </div>
             </div>
 
@@ -66,6 +82,10 @@
                     <div class="status-value" id="alarmStatus">
                         <span class="badge badge-gray">Inactive</span>
                     </div>
+                </div>
+
+                <div class="control-actions">
+                    <button class="btn btn-primary" onclick="toggleZoneEditor()">Configure Zones</button>
                 </div>
 
                 <div class="status-item">

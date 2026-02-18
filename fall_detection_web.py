@@ -27,11 +27,12 @@ from pipeline_apps.pose_estimation.pose_estimation_pipeline import GStreamerPose
 import hailo
 
 # Flask imports
-from flask import Flask, Response, jsonify, send_from_directory
+from flask import Flask, Response, jsonify, send_from_directory, request
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import cv2
 from datetime import datetime
+import json
 
 
 # =============================================================================
@@ -180,6 +181,9 @@ def _capture_and_draw(buffer, detections, user_data):
                 buffer=map_info.data
             ).copy()
 
+            # Draw safe zones (if any)
+            _draw_zones(frame, user_data.fall_detector.get_zones())
+
             # Draw pose skeleton
             _draw_skeleton(frame, detections)
 
@@ -244,6 +248,27 @@ def _draw_skeleton(frame, detections):
                 cv2.circle(frame, pt, 5, (255, 255, 255), 1)
 
 
+def _draw_zones(frame, zones):
+    """Draw configured safe zones on frame."""
+    h, w = frame.shape[:2]
+    
+    # Draw Bed Zones (Blue)
+    for zone in zones.get('bed', []):
+        if len(zone) == 4:
+            x1, y1, x2, y2 = [int(v * s) for v, s in zip(zone, [w, h, w, h])]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            cv2.putText(frame, "BED", (x1 + 5, y1 + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+    # Draw Door Zones (Green)
+    for zone in zones.get('door', []):
+        if len(zone) == 4:
+            x1, y1, x2, y2 = [int(v * s) for v, s in zip(zone, [w, h, w, h])]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, "DOOR", (x1 + 5, y1 + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+
 def _draw_status_overlay(frame, user_data):
     """Draw fall detection score and state on frame."""
     status = user_data.get_status()
@@ -258,6 +283,8 @@ def _draw_status_overlay(frame, user_data):
         state_color = (0, 165, 255)  # Orange
     elif state == "CAUTION":
         state_color = (0, 255, 255)  # Yellow
+    elif state == "RESTING":
+        state_color = (255, 0, 0)    # Blue
     else:
         state_color = (0, 200, 0)  # Green
 
@@ -356,6 +383,26 @@ def get_status():
     if detection_logic:
         return jsonify(detection_logic.get_status())
     return jsonify({'error': 'not ready'})
+
+
+@app.route('/api/zones', methods=['GET'])
+def get_zones():
+    if detection_logic:
+        return jsonify(detection_logic.fall_detector.get_zones())
+    return jsonify({'bed': [], 'door': []})
+
+
+@app.route('/api/zones', methods=['POST'])
+def save_zones():
+    if not detection_logic:
+        return jsonify({'error': 'not ready'}), 503
+    
+    try:
+        zones = request.json
+        detection_logic.fall_detector.save_zones(zones)
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 
 @socketio.on('connect')
