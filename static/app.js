@@ -1,15 +1,14 @@
-// ============================================================================
+// =============================================================================
 // Fall Detection System - Client-side JavaScript
-// ============================================================================
+// =============================================================================
 
-// Global state
 let socket = null;
 let statusPollInterval = null;
 let isConnected = false;
 
-// ============================================================================
+// =============================================================================
 // WebSocket Connection
-// ============================================================================
+// =============================================================================
 
 function initializeWebSocket() {
     console.log('[WebSocket] Connecting...');
@@ -25,7 +24,6 @@ function initializeWebSocket() {
         isConnected = true;
         updateConnectionStatus(true);
 
-        // Stop polling when connected via WebSocket
         if (statusPollInterval) {
             clearInterval(statusPollInterval);
             statusPollInterval = null;
@@ -36,21 +34,16 @@ function initializeWebSocket() {
         console.log('[WebSocket] Disconnected');
         isConnected = false;
         updateConnectionStatus(false);
-
-        // Fallback to polling
         startStatusPolling();
     });
 
     socket.on('status', (data) => {
-        console.log('[WebSocket] Status update:', data);
         updateUI(data);
     });
 
     socket.on('alarm_triggered', (data) => {
         console.log('[WebSocket] Alarm triggered!', data);
         showAlarmBanner(data);
-
-        // Request notification permission and show browser notification
         showBrowserNotification('ALARM!', 'Fall detected!');
     });
 
@@ -60,14 +53,12 @@ function initializeWebSocket() {
     });
 }
 
-// ============================================================================
+// =============================================================================
 // Status Polling (Fallback)
-// ============================================================================
+// =============================================================================
 
 function startStatusPolling() {
-    if (statusPollInterval) return; // Already polling
-
-    console.log('[Polling] Starting status polling...');
+    if (statusPollInterval) return;
 
     statusPollInterval = setInterval(async () => {
         try {
@@ -77,12 +68,12 @@ function startStatusPolling() {
         } catch (error) {
             console.error('[Polling] Error:', error);
         }
-    }, 1000); // Poll every 1 second
+    }, 1000);
 }
 
-// ============================================================================
+// =============================================================================
 // UI Updates
-// ============================================================================
+// =============================================================================
 
 function updateConnectionStatus(connected) {
     const statusDot = document.querySelector('.status-dot');
@@ -100,27 +91,32 @@ function updateConnectionStatus(connected) {
 }
 
 function updateUI(data) {
-    // Update fall detection status
-    const fallDetectedEl = document.getElementById('fallDetected');
-    if (data.fall_detected) {
-        fallDetectedEl.innerHTML = '<span class="badge badge-warning">YES</span>';
+    // Update fall state
+    const fallStateEl = document.getElementById('fallState');
+    const state = data.fall_state || 'MONITORING';
+
+    if (state === 'ALARM') {
+        fallStateEl.innerHTML = '<span class="badge badge-danger">ALARM</span>';
+        showAlarmBanner(data);
+    } else if (state === 'ALERT') {
+        fallStateEl.innerHTML = '<span class="badge badge-warning">ALERT</span>';
     } else {
-        fallDetectedEl.innerHTML = '<span class="badge badge-gray">No</span>';
+        fallStateEl.innerHTML = '<span class="badge badge-success">MONITORING</span>';
+        hideAlarmBanner();
     }
+
+    // Update fall score
+    const fallScoreEl = document.getElementById('fallScore');
+    const score = data.fall_score || 0;
+    fallScoreEl.innerHTML = `<span class="duration">${score.toFixed(2)}</span>`;
 
     // Update alarm status
     const alarmStatusEl = document.getElementById('alarmStatus');
     if (data.alarm_active) {
         alarmStatusEl.innerHTML = '<span class="badge badge-danger">ACTIVE</span>';
-        showAlarmBanner(data);
     } else {
         alarmStatusEl.innerHTML = '<span class="badge badge-gray">Inactive</span>';
-        hideAlarmBanner();
     }
-
-    // Update fall duration
-    const fallDurationEl = document.getElementById('fallDuration');
-    fallDurationEl.innerHTML = `<span class="duration">${data.fall_duration}s</span>`;
 
     // Update last update time
     const lastUpdateEl = document.getElementById('lastUpdate');
@@ -145,9 +141,9 @@ function hideAlarmBanner() {
     banner.classList.add('hidden');
 }
 
-// ============================================================================
+// =============================================================================
 // Browser Notifications
-// ============================================================================
+// =============================================================================
 
 function requestNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -159,7 +155,6 @@ function showBrowserNotification(title, body) {
     if ('Notification' in window && Notification.permission === 'granted') {
         const notification = new Notification(title, {
             body: body,
-            icon: '/static/favicon.ico', // Optional: add your icon
             tag: 'fall-detection-alarm',
             requireInteraction: true
         });
@@ -169,62 +164,40 @@ function showBrowserNotification(title, body) {
             notification.close();
         };
 
-        // Auto-close after 10 seconds
         setTimeout(() => notification.close(), 10000);
     }
 }
 
-// ============================================================================
+// =============================================================================
 // Video Feed
-// ============================================================================
+// =============================================================================
 
 function initializeVideoFeed() {
     const videoFeed = document.getElementById('videoFeed');
     const videoOverlay = document.getElementById('videoOverlay');
 
-    // Hide overlay when video loads
     videoFeed.addEventListener('load', () => {
         videoOverlay.classList.add('hidden');
     });
 
-    // Show overlay on error
     videoFeed.addEventListener('error', () => {
         videoOverlay.classList.remove('hidden');
         videoOverlay.querySelector('p').textContent = 'Camera load error';
     });
 }
 
-// ============================================================================
+// =============================================================================
 // Initialization
-// ============================================================================
+// =============================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[App] Initializing...');
-
-    // Initialize video feed
     initializeVideoFeed();
-
-    // Request notification permission
     requestNotificationPermission();
-
-    // Initialize WebSocket
     initializeWebSocket();
-
-    // Start polling as fallback (will be stopped if WebSocket connects)
     startStatusPolling();
-
-    console.log('[App] Initialization complete');
 });
 
-// ============================================================================
-// Cleanup
-// ============================================================================
-
 window.addEventListener('beforeunload', () => {
-    if (statusPollInterval) {
-        clearInterval(statusPollInterval);
-    }
-    if (socket) {
-        socket.disconnect();
-    }
+    if (statusPollInterval) clearInterval(statusPollInterval);
+    if (socket) socket.disconnect();
 });
