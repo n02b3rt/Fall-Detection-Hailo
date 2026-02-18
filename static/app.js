@@ -100,6 +100,8 @@ function updateUI(data) {
         showAlarmBanner(data);
     } else if (state === 'ALERT') {
         fallStateEl.innerHTML = '<span class="badge badge-warning">ALERT</span>';
+    } else if (state === 'CAUTION') {
+        fallStateEl.innerHTML = '<span class="badge badge-warning">CAUTION</span>';
     } else {
         fallStateEl.innerHTML = '<span class="badge badge-success">MONITORING</span>';
         hideAlarmBanner();

@@ -30,19 +30,24 @@ class PoseSnapshot:
     visible_keypoints: int  # count of confident keypoints
     is_horizontal_pose: bool  # static pose check
     hip_shoulder_proximity: Optional[float]  # normalized vertical distance
+    is_kneeling: bool = False  # kneeling pose detected
 
 
 @dataclass
 class FallState:
     """Current state of fall detection for one person."""
     score: float = 0.0
-    state: str = "MONITORING"  # MONITORING / ALERT / ALARM
+    state: str = "MONITORING"  # MONITORING / CAUTION / ALERT / ALARM
     alert_start_time: Optional[float] = None
     alarm_active: bool = False
     standing_com_y: Optional[float] = None  # calibrated "normal" standing height
     standing_bbox_height: Optional[float] = None
     calibration_samples: List[float] = field(default_factory=list)
     last_descent_detected: Optional[float] = None
+    # Disappearance tracking
+    person_visible: bool = False
+    last_person_seen: Optional[float] = None
+    person_gone_since: Optional[float] = None
 
 
 # =============================================================================
@@ -62,6 +67,7 @@ class FallDetector:
         self.fall_state = FallState()
         self._fps_estimate = 30.0
         self._last_timestamp = None
+        self._last_kp_data = None  # for kneeling check reuse
 
     # -------------------------------------------------------------------------
     # Public API
@@ -93,6 +99,11 @@ class FallDetector:
         snapshot = self._create_snapshot(bbox, keypoints, timestamp)
         self.history.append(snapshot)
 
+        # Mark person as visible (for disappearance tracking)
+        self.fall_state.person_visible = True
+        self.fall_state.last_person_seen = timestamp
+        self.fall_state.person_gone_since = None
+
         # Need at least some history for temporal analysis
         if len(self.history) < 5:
             return self._make_result()
@@ -105,6 +116,11 @@ class FallDetector:
         pose_score = self._compute_pose_score(snapshot)
         descent_score = self._compute_descent_score(snapshot)
         stillness_score = self._compute_stillness_score(timestamp)
+
+        # Kneeling suppression: if kneeling, dampen pose and descent
+        if snapshot.is_kneeling:
+            pose_score *= 0.3
+            descent_score *= 0.4
 
         # Weighted combination
         raw_score = (
@@ -125,7 +141,48 @@ class FallDetector:
             pose_score=pose_score,
             descent_score=descent_score,
             stillness_score=stillness_score,
+            kneeling=1.0 if snapshot.is_kneeling else 0.0,
         )
+
+    def update_no_person(self, timestamp: Optional[float] = None) -> dict:
+        """
+        Call when NO person is detected in frame.
+        Tracks disappearance and may escalate to CAUTION.
+        """
+        if timestamp is None:
+            timestamp = time.time()
+
+        state = self.fall_state
+
+        # Was person previously visible?
+        if state.person_visible and state.last_person_seen is not None:
+            # Person just disappeared
+            state.person_visible = False
+            if state.person_gone_since is None:
+                state.person_gone_since = timestamp
+
+        if state.person_gone_since is not None:
+            gone_duration = timestamp - state.person_gone_since
+
+            # Escalation: CAUTION after threshold
+            if gone_duration >= config.PERSON_GONE_CAUTION_TIME:
+                if state.state == "MONITORING":
+                    state.state = "CAUTION"
+
+            # Escalation: ALERT after longer threshold
+            if gone_duration >= config.PERSON_GONE_ALERT_TIME:
+                if state.state in ("MONITORING", "CAUTION"):
+                    state.state = "ALERT"
+                    state.alert_start_time = state.alert_start_time or timestamp
+                    state.score = max(state.score, config.FALL_SCORE_THRESHOLD)
+
+                # Full alarm after sustained alert
+                if (state.state == "ALERT" and state.alert_start_time
+                        and (timestamp - state.alert_start_time) >= config.ALARM_DURATION_SECONDS):
+                    state.state = "ALARM"
+                    state.alarm_active = True
+
+        return self._make_result()
 
     def reset(self):
         """Reset all state (e.g. when alarm is manually cleared)."""
@@ -161,6 +218,10 @@ class FallDetector:
         # Hip-shoulder vertical proximity (normalized)
         hip_shoulder_prox = self._compute_hip_shoulder_proximity(kp_data)
 
+        # Kneeling detection
+        kneeling = self._is_kneeling(kp_data, torso_angle)
+        self._last_kp_data = kp_data
+
         return PoseSnapshot(
             timestamp=timestamp,
             center_of_mass=com,
@@ -171,6 +232,7 @@ class FallDetector:
             visible_keypoints=visible_count,
             is_horizontal_pose=is_horizontal,
             hip_shoulder_proximity=hip_shoulder_prox,
+            is_kneeling=kneeling,
         )
 
     def _extract_keypoints(self, bbox, keypoints) -> dict:
@@ -270,6 +332,46 @@ class FallDetector:
             return abs(avg_h - avg_s)
 
         return None
+
+    def _is_kneeling(self, kp_data: dict, torso_angle: Optional[float]) -> bool:
+        """
+        Detect kneeling pose.
+        Kneeling = knees visible & below hips & torso not fully horizontal.
+        """
+        # Need at least one knee and one hip
+        lk = kp_data.get('left_knee')
+        rk = kp_data.get('right_knee')
+        lh = kp_data.get('left_hip')
+        rh = kp_data.get('right_hip')
+
+        knees = [k for k in [lk, rk] if k is not None]
+        hips = [h for h in [lh, rh] if h is not None]
+
+        if not knees or not hips:
+            return False
+
+        # Knees must be BELOW hips (higher Y = lower in image)
+        avg_knee_y = sum(k[1] for k in knees) / len(knees)
+        avg_hip_y = sum(h[1] for h in hips) / len(hips)
+
+        knees_below_hips = avg_knee_y > avg_hip_y
+
+        # Torso still somewhat upright (not fully collapsed)
+        torso_upright = torso_angle is not None and torso_angle < 55
+
+        # Check ankles - if visible and near knees, likely kneeling
+        la = kp_data.get('left_ankle')
+        ra = kp_data.get('right_ankle')
+        ankles = [a for a in [la, ra] if a is not None]
+
+        ankles_near_knees = False
+        if ankles and knees:
+            avg_ankle_y = sum(a[1] for a in ankles) / len(ankles)
+            # Ankles close to knees vertically = legs folded = kneeling
+            ankles_near_knees = abs(avg_ankle_y - avg_knee_y) < 0.08
+
+        # Kneeling: knees below hips AND (torso upright OR ankles near knees)
+        return knees_below_hips and (torso_upright or ankles_near_knees)
 
     # -------------------------------------------------------------------------
     # Calibration
@@ -446,7 +548,7 @@ class FallDetector:
     # -------------------------------------------------------------------------
 
     def _update_state(self, timestamp: float):
-        """Update MONITORING -> ALERT -> ALARM state."""
+        """Update MONITORING -> CAUTION -> ALERT -> ALARM state."""
         state = self.fall_state
         score = state.score
 
@@ -457,24 +559,21 @@ class FallDetector:
             return
 
         if score >= config.FALL_SCORE_THRESHOLD:
-            if state.state == "MONITORING":
+            if state.state in ("MONITORING", "CAUTION"):
                 state.state = "ALERT"
-                state.alert_start_time = timestamp
+                state.alert_start_time = state.alert_start_time or timestamp
 
             elif state.state == "ALERT":
-                # Check if alert has been sustained long enough
                 alert_duration = timestamp - (state.alert_start_time or timestamp)
                 if alert_duration >= config.ALARM_DURATION_SECONDS:
                     state.state = "ALARM"
                     state.alarm_active = True
         else:
             # Score dropped below threshold
-            if state.state == "ALERT":
+            if state.state in ("ALERT", "CAUTION"):
                 state.state = "MONITORING"
                 state.alert_start_time = None
             elif state.state == "ALARM":
-                # Don't immediately clear alarm - require score to stay low
-                # for a few seconds (prevents alarm flickering)
                 if score < config.FALL_SCORE_THRESHOLD * 0.5:
                     state.state = "MONITORING"
                     state.alarm_active = False

@@ -89,23 +89,26 @@ def process_frame(element, buffer, user_data: FallDetectionLogic):
         if best_result is None or result['score'] > best_result['score']:
             best_result = result
 
-    if best_result:
+    else:
+        # No person detected - track disappearance
+        best_result = user_data.fall_detector.update_no_person(timestamp)
         prev_alarm = user_data.alarm_active
         user_data.alarm_active = best_result['alarm_active']
 
         if best_result['alarm_active'] and not prev_alarm:
             trigger_alarm()
-            print(f"[ALARM] Fall detected! Score: {best_result['score']:.2f}")
+            print(f"[ALARM] Fall detected (disappearance)! Score: {best_result['score']:.2f}")
 
         if not best_result['alarm_active'] and prev_alarm:
             clear_alarm()
             print("[INFO] Alarm cleared")
 
-        # Periodic status log
-        state = best_result['state']
-        score = best_result['score']
-        if state != "MONITORING" or int(timestamp) % 5 == 0:
-            print(f"[{state}] Score: {score:.2f} | {best_result['details']}")
+    # Periodic status log - now references best_result which is guaranteed to be set
+    state = best_result['state']
+    score = best_result['score']
+    if state != "MONITORING" or int(timestamp) % 5 == 0:
+        details = best_result.get('details', {})
+        print(f"[{state}] Score: {score:.2f} | {details}")
 
     return True
 

@@ -134,14 +134,25 @@ def process_frame(element, buffer, user_data: FallDetectionLogic):
                     'timestamp': datetime.now().isoformat()
                 })
         else:
-            # No person detected
-            if user_data.alarm_active:
-                # Don't immediately clear - person might have fallen out of frame
-                pass
-            user_data.last_result = {
-                'score': 0.0, 'state': 'MONITORING',
-                'alarm_active': user_data.alarm_active, 'details': {}
-            }
+            # No person detected - track disappearance
+            result = user_data.fall_detector.update_no_person(timestamp)
+            prev_alarm = user_data.alarm_active
+            user_data.last_result = result
+            user_data.alarm_active = result['alarm_active']
+
+            if result['alarm_active'] and not prev_alarm:
+                trigger_alarm()
+                user_data.socketio.emit('alarm_triggered', {
+                    'timestamp': datetime.now().isoformat(),
+                    'score': result['score'],
+                    'reason': 'person_disappeared',
+                })
+
+            if not result['alarm_active'] and prev_alarm:
+                clear_alarm()
+                user_data.socketio.emit('alarm_cleared', {
+                    'timestamp': datetime.now().isoformat()
+                })
 
         user_data.last_update = datetime.now()
 
@@ -245,6 +256,8 @@ def _draw_status_overlay(frame, user_data):
         state_color = (0, 0, 255)  # Red
     elif state == "ALERT":
         state_color = (0, 165, 255)  # Orange
+    elif state == "CAUTION":
+        state_color = (0, 255, 255)  # Yellow
     else:
         state_color = (0, 200, 0)  # Green
 

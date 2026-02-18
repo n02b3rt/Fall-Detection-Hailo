@@ -43,6 +43,10 @@ FALL_SCORE_THRESHOLD = 0.5        # Score to trigger alert
 ALARM_DURATION_SECONDS = 2.0      # Sustained alert before full alarm
 CRITICAL_SCORE = 0.8              # Instant alarm (no waiting period)
 
+# Disappearance tracking
+PERSON_GONE_CAUTION_TIME = 1.5    # Seconds before CAUTION (person vanished)
+PERSON_GONE_ALERT_TIME = 5.0      # Seconds before escalating to ALERT
+
 # =============================================================================
 # Hailo Model
 # =============================================================================
