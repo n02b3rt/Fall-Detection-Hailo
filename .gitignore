@@ -34,4 +34,10 @@ Thumbs.db
 
 # Backup files
 *_backup.py
+*_backup_*.py
 *.bak
+
+# Test case recordings (local only - never push to remote!)
+test_cases/
+*.avi
+*.mp4

@@ -135,6 +135,16 @@ function updateUI(data) {
     const timestamp = new Date(data.timestamp);
     const timeString = timestamp.toLocaleTimeString('en-US');
     lastUpdateEl.innerHTML = `<span class="time">${timeString}</span>`;
+
+    // Update recording buttons
+    // Update recording buttons & indicator
+    const recIndicator = document.getElementById('recIndicator');
+
+    if (data.recording) {
+        if (recIndicator) recIndicator.classList.remove('hidden');
+    } else {
+        if (recIndicator) recIndicator.classList.add('hidden');
+    }
 }
 
 function showAlarmBanner(data) {
@@ -398,8 +408,26 @@ document.addEventListener('DOMContentLoaded', () => {
     window.toggleZoneEditor = toggleZoneEditor;
     window.setZoneType = setZoneType;
     window.saveZones = saveZones;
+    window.saveZones = saveZones;
     window.clearZones = clearZones;
+    // Expose new functions
+    window.startRecording = startRecording;
+    window.stopRecording = stopRecording;
 });
+
+// =============================================================================
+// Recording Control
+// =============================================================================
+
+function startRecording() {
+    console.log("[JS] START clicked");
+    socket.emit('start_recording');
+}
+
+function stopRecording() {
+    console.log("[JS] STOP clicked");
+    socket.emit('stop_recording');
+}
 
 window.addEventListener('beforeunload', () => {
     if (statusPollInterval) clearInterval(statusPollInterval);

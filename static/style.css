@@ -396,3 +396,38 @@ body {
     font-size: 0.8rem;
     margin-top: var(--spacing-lg);
 }
+/* Recording UI */
+.recording-indicator {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background-color: rgba(255, 0, 0, 0.8);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 1.2rem;
+    animation: blink 1s infinite;
+    z-index: 100;
+    pointer-events: none;
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.4; }
+    100% { opacity: 1; }
+}
+
+.btn-large-rec {
+    font-size: 1.5rem !important;
+    padding: 15px 30px !important;
+    border-radius: 50px !important;
+    font-weight: bold !important;
+    text-transform: uppercase;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    transition: all 0.2s;
+}
+
+.btn-large-rec:active {
+    transform: scale(0.95);
+}

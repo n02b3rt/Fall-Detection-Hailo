@@ -73,7 +73,79 @@ class FallDetectionLogic(app_callback_class):
             'alarm_active': False, 'details': {}
         }
         self.last_update = datetime.now()
+        self.last_update = datetime.now()
         self.lock = threading.Lock()
+        
+        # Recorder state
+        self.is_recording = False
+        self.video_writer = None
+        self.recording_filename = None
+        self.frame_width = config.WIDTH
+        self.frame_height = config.HEIGHT
+        
+        # Ensure test directory
+        self.test_dir = os.path.join(os.path.dirname(__file__), "test_cases")
+        os.makedirs(self.test_dir, exist_ok=True)
+
+    def start_recording(self):
+        """Start recording video to a file."""
+        print(f"[REC] Request START received at {datetime.now()}")
+        with self.lock:
+            if self.is_recording:
+                print("[REC] Error: Already recording")
+                return {"status": "error", "message": "Already recording"}
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"test_case_{timestamp}.avi"
+            filepath = os.path.join(self.test_dir, filename)
+            
+            print(f"[REC] Initializing VideoWriter: {filepath}")
+            # Initialize VideoWriter (MJPG is widely supported and reasonably fast)
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            self.video_writer = cv2.VideoWriter(
+                filepath, fourcc, 30.0, (self.frame_width, self.frame_height)
+            )
+            
+            if not self.video_writer.isOpened():
+                print("[REC] Error: Failed to open VideoWriter")
+                self.video_writer = None
+                return {"status": "error", "message": "Failed to open video writer"}
+            
+            self.is_recording = True
+            self.recording_filename = filename
+            print(f"[REC] STARTED successfully: {filename}")
+            return {"status": "ok", "filename": filename}
+
+    def stop_recording(self):
+        """Stop current recording."""
+        print(f"[REC] Request STOP received at {datetime.now()}")
+        with self.lock:
+            if not self.is_recording:
+                print("[REC] Warning: Stop requested but not recording")
+                return {"status": "error", "message": "Not recording"}
+            
+            if self.video_writer:
+                self.video_writer.release()
+                self.video_writer = None
+                print("[REC] VideoWriter released")
+            else:
+                print("[REC] Warning: No VideoWriter object found")
+            
+            filename = self.recording_filename
+            self.is_recording = False
+            self.recording_filename = None
+            print(f"[REC] STOPPED successfully: {filename}")
+            return {"status": "ok", "filename": filename}
+
+    def write_frame(self, frame):
+        """Write frame to video file if recording."""
+        # Check flag without lock first for speed
+        if not self.is_recording:
+            return
+            
+        with self.lock:
+            if self.is_recording and self.video_writer:
+                self.video_writer.write(frame)
 
     def get_status(self):
         with self.lock:
@@ -84,7 +156,8 @@ class FallDetectionLogic(app_callback_class):
                 'fall_state': self.last_result['state'],
                 'fall_duration': 0.0,  # Kept for API compat
                 'details': self.last_result.get('details', {}),
-                'timestamp': self.last_update.isoformat()
+                'timestamp': self.last_update.isoformat(),
+                'recording': self.is_recording
             }
 
 
@@ -180,6 +253,10 @@ def _capture_and_draw(buffer, detections, user_data):
                 dtype=np.uint8,
                 buffer=map_info.data
             ).copy()
+            
+            # RECORD RAW FRAME (Before overlays)
+            if user_data.is_recording:
+                user_data.write_frame(frame)
 
             # Draw safe zones (if any)
             _draw_zones(frame, user_data.fall_detector.get_zones())
@@ -285,10 +362,14 @@ def _draw_status_overlay(frame, user_data):
     # State color
     if state == "ALARM":
         state_color = (0, 0, 255)  # Red
-    elif state == "ALERT":
+    elif state == "PRE_ALARM":
         state_color = (0, 165, 255)  # Orange
-    elif state == "CAUTION":
+    elif state == "VERIFICATION":
         state_color = (0, 255, 255)  # Yellow
+    elif state == "ALERT":
+        state_color = (0, 255, 255)  # Cyan (Legacy/Fallback)
+    elif state == "CAUTION":
+        state_color = (0, 200, 200)  # Teal
     elif state == "RESTING":
         state_color = (255, 0, 0)    # Blue
     else:
@@ -344,8 +425,9 @@ def _draw_status_overlay(frame, user_data):
         # Metadata (Compression / Kneeling)
         comp = details.get('compression', 0.0)
         kneel = details.get('kneeling', 0.0)
+        nhs = details.get('nose_hip_spread', 0.0)
         
-        meta_text = f"Comp:{comp:.2f} Kn:{int(kneel)}"
+        meta_text = f"C:{comp:.2f} N:{nhs:.2f} K:{int(kneel)}"
         # Highlight compression if low (triggering)
         comp_color = (0, 0, 255) if comp > 0 and comp < config.TORSO_COMPRESSION_THRESHOLD else (180, 180, 180)
         
@@ -435,6 +517,22 @@ def handle_disconnect():
     print('[INFO] Client disconnected')
 
 
+@socketio.on('start_recording')
+def handle_start_recording():
+    """Handle start recording request."""
+    if detection_logic:
+        res = detection_logic.start_recording()
+        emit('recording_status', res)
+
+
+@socketio.on('stop_recording')
+def handle_stop_recording():
+    """Handle stop recording request."""
+    if detection_logic:
+        res = detection_logic.stop_recording()
+        emit('recording_status', res)
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -447,7 +545,7 @@ def main():
     print("   Temporal Analysis Engine v2.0")
     print("=" * 60)
     print(f"Alert threshold: {config.FALL_SCORE_THRESHOLD}")
-    print(f"Alarm after: {config.ALARM_DURATION_SECONDS}s sustained")
+    print(f"Pre-Alarm: {config.PRE_ALARM_TIME}s")
     print(f"Instant alarm at score: {config.CRITICAL_SCORE}")
     print(f"Web server: http://{config.WEB_HOST}:{config.WEB_PORT}")
     print("=" * 60)

@@ -37,6 +37,7 @@
                 <!-- Video Container -->
                 <div class="video-container">
                     <img id="videoFeed" src="/video_feed" alt="Live Video Feed">
+                    <div id="recIndicator" class="recording-indicator hidden">● REC</div>
                     <canvas id="zoneCanvas"></canvas>
 
                     <!-- Overlay for connection status -->
@@ -88,6 +89,10 @@
 
                 <div class="control-actions">
                     <button class="btn btn-primary" onclick="toggleZoneEditor()">Configure Zones</button>
+                    <button id="btnStartRec" class="btn btn-success btn-large-rec" onclick="startRecording()">START
+                        REC</button>
+                    <button id="btnStopRec" class="btn btn-danger btn-large-rec" onclick="stopRecording()">STOP
+                        REC</button>
                 </div>
 
                 <div class="status-item">
