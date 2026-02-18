@@ -80,10 +80,30 @@ class FallDetector:
     # -------------------------------------------------------------------------
 
     def load_zones(self):
-        """Load safe zones from JSON config."""
+        """Load safe zones from JSON config. Auto-migrates legacy rect format."""
         try:
             with open('zones.json', 'r') as f:
-                self._zones = json.load(f)
+                loaded_zones = json.load(f)
+                
+            # Migration check: Convert old [x1, y1, x2, y2] rects to polygons
+            self._zones = {'bed': [], 'door': []}
+            
+            for key in ['bed', 'door']:
+                if key in loaded_zones:
+                    for z in loaded_zones[key]:
+                        # Check if it's a flat list of 4 numbers (legacy rect)
+                        if len(z) == 4 and isinstance(z[0], (int, float)):
+                            # Convert to 4-point polygon
+                            x1, y1, x2, y2 = z
+                            poly = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+                            self._zones[key].append(poly)
+                        else:
+                            # Assume it's already a polygon (list of lists)
+                            self._zones[key].append(z)
+                            
+            # Save back to update format
+            self.save_zones(self._zones)
+            
         except (FileNotFoundError, json.JSONDecodeError):
             self._zones = {'bed': [], 'door': []}
 
