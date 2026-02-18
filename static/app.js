@@ -181,7 +181,7 @@ function showBrowserNotification(title, body) {
 }
 
 // =============================================================================
-// Zone Editor
+// Zone Editor (Polygon Support)
 // =============================================================================
 
 function initializeZoneEditor() {
@@ -199,9 +199,13 @@ function initializeZoneEditor() {
         if (isEditingZones) drawZones();
     });
 
-    canvas.addEventListener('mousedown', startDrawing);
-    canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('mouseup', stopDrawing);
+    // Polygon drawing events
+    canvas.addEventListener('click', handleCanvasClick);
+    canvas.addEventListener('mousemove', handleCanvasMove);
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        finishPolygon();
+    });
 }
 
 function toggleZoneEditor() {
@@ -212,10 +216,12 @@ function toggleZoneEditor() {
         controls.classList.remove('hidden');
         canvas.style.pointerEvents = 'auto'; // Enable interaction
         loadZones(); // Load current zones from backend
+        currentPolygon = [];
     } else {
         controls.classList.add('hidden');
         canvas.style.pointerEvents = 'none'; // Passthrough
         ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear overlay
+        currentPolygon = [];
     }
 }
 
@@ -224,7 +230,7 @@ function setZoneType(type) {
     const btns = document.querySelectorAll('.zone-type-selector button');
     btns.forEach(btn => btn.classList.remove('active'));
 
-    // Find button by text content or logic (simplified here)
+    // Find button by text content or logic
     if (type === 'bed') btns[0].classList.add('active');
     if (type === 'door') btns[1].classList.add('active');
 }
@@ -255,84 +261,108 @@ async function saveZones() {
 
 function clearZones() {
     zones = { bed: [], door: [] };
+    currentPolygon = [];
     drawZones();
 }
 
-function startDrawing(e) {
-    isDrawing = true;
+function handleCanvasClick(e) {
+    if (!isEditingZones) return;
+
     const rect = canvas.getBoundingClientRect();
-    startX = e.clientX - rect.left;
-    startY = e.clientY - rect.top;
+    const x = (e.clientX - rect.left) / canvas.width;
+    const y = (e.clientY - rect.top) / canvas.height;
+
+    // Add point to current polygon
+    currentPolygon.push([x, y]);
+    drawZones();
 }
 
-function draw(e) {
-    if (!isDrawing) return;
-    drawZones(); // Redraw existing
+function handleCanvasMove(e) {
+    if (!isEditingZones || currentPolygon.length === 0) return;
+    drawZones();
 
+    // Draw guide line from last point to mouse cursor
     const rect = canvas.getBoundingClientRect();
-    const currentX = e.clientX - rect.left;
-    const currentY = e.clientY - rect.top;
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
 
+    const lastPt = currentPolygon[currentPolygon.length - 1];
+
+    ctx.beginPath();
+    ctx.moveTo(lastPt[0] * canvas.width, lastPt[1] * canvas.height);
+    ctx.lineTo(mouseX, mouseY);
     ctx.strokeStyle = currentZoneType === 'bed' ? '#007bff' : '#28a745';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
 }
 
-function stopDrawing(e) {
-    if (!isDrawing) return;
-    isDrawing = false;
-
-    const rect = canvas.getBoundingClientRect();
-    const endX = e.clientX - rect.left;
-    const endY = e.clientY - rect.top;
-
-    // Normalize coordinates (0.0 - 1.0)
-    const x1 = Math.min(startX, endX) / canvas.width;
-    const y1 = Math.min(startY, endY) / canvas.height;
-    const x2 = Math.max(startX, endX) / canvas.width;
-    const y2 = Math.max(startY, endY) / canvas.height;
-
-    // Add new zone if big enough
-    if ((x2 - x1) > 0.05 && (y2 - y1) > 0.05) {
-        zones[currentZoneType].push([x1, y1, x2, y2]);
+function finishPolygon() {
+    if (currentPolygon.length >= 3) {
+        zones[currentZoneType].push([...currentPolygon]);
     }
-
+    currentPolygon = [];
     drawZones();
 }
 
 function drawZones() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw Bed Zones
-    ctx.strokeStyle = '#007bff';
-    ctx.lineWidth = 2;
-    ctx.fillStyle = 'rgba(0, 123, 255, 0.2)';
+    // Helper to draw a single polygon
+    const drawPoly = (points, color, fillColor, label) => {
+        if (points.length < 1) return;
 
-    zones.bed.forEach(zone => {
-        const [x1, y1, x2, y2] = zone;
-        const w = (x2 - x1) * canvas.width;
-        const h = (y2 - y1) * canvas.height;
-        ctx.fillRect(x1 * canvas.width, y1 * canvas.height, w, h);
-        ctx.strokeRect(x1 * canvas.width, y1 * canvas.height, w, h);
-        ctx.fillStyle = '#007bff';
-        ctx.fillText('BED', x1 * canvas.width + 5, y1 * canvas.height + 20);
-        ctx.fillStyle = 'rgba(0, 123, 255, 0.2)';
-    });
+        ctx.beginPath();
+        ctx.moveTo(points[0][0] * canvas.width, points[0][1] * canvas.height);
+        for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i][0] * canvas.width, points[i][1] * canvas.height);
+        }
+        ctx.closePath();
 
-    // Draw Door Zones
-    ctx.strokeStyle = '#28a745';
-    ctx.fillStyle = 'rgba(40, 167, 69, 0.2)';
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
 
-    zones.door.forEach(zone => {
-        const [x1, y1, x2, y2] = zone;
-        const w = (x2 - x1) * canvas.width;
-        const h = (y2 - y1) * canvas.height;
-        ctx.fillRect(x1 * canvas.width, y1 * canvas.height, w, h);
-        ctx.strokeRect(x1 * canvas.width, y1 * canvas.height, w, h);
-        ctx.fillStyle = '#28a745';
-        ctx.fillText('DOOR', x1 * canvas.width + 5, y1 * canvas.height + 20);
-        ctx.fillStyle = 'rgba(40, 167, 69, 0.2)';
-    });
+        if (label) {
+            ctx.fillStyle = color;
+            ctx.font = '12px Arial';
+            ctx.fillText(label, points[0][0] * canvas.width, points[0][1] * canvas.height - 5);
+        }
+    };
+
+    // Draw saved Bed Zones
+    zones.bed.forEach(poly => drawPoly(poly, '#007bff', 'rgba(0, 123, 255, 0.2)', 'BED'));
+
+    // Draw saved Door Zones
+    zones.door.forEach(poly => drawPoly(poly, '#28a745', 'rgba(40, 167, 69, 0.2)', 'DOOR'));
+
+    // Draw current polygon in progress
+    if (currentPolygon.length > 0) {
+        const color = currentZoneType === 'bed' ? '#007bff' : '#28a745';
+
+        // Draw points
+        ctx.fillStyle = color;
+        currentPolygon.forEach(pt => {
+            ctx.beginPath();
+            ctx.arc(pt[0] * canvas.width, pt[1] * canvas.height, 4, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // Draw lines between points
+        if (currentPolygon.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(currentPolygon[0][0] * canvas.width, currentPolygon[0][1] * canvas.height);
+            for (let i = 1; i < currentPolygon.length; i++) {
+                ctx.lineTo(currentPolygon[i][0] * canvas.width, currentPolygon[i][1] * canvas.height);
+            }
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+    }
 }
 
 // =============================================================================

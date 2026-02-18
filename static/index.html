@@ -37,25 +37,27 @@
                 <!-- Video Container -->
                 <div class="video-container">
                     <img id="videoFeed" src="/video_feed" alt="Live Video Feed">
-                    <canvas id="zoneCanvas"></canvas> <!-- Overlay for drawing zones -->
+                    <canvas id="zoneCanvas"></canvas>
+
+                    <!-- Overlay for connection status -->
                     <div class="video-overlay" id="videoOverlay">
                         <p>Connecting to camera...</p>
                     </div>
-                </div>
 
-                <!-- Zone Editor Controls (Hidden by default) -->
-                <div id="zoneEditorControls" class="zone-controls hidden">
-                    <div class="zone-type-selector">
-                        <button class="btn btn-sm btn-blue active" onclick="setZoneType('bed')">Bed Zone</button>
-                        <button class="btn btn-sm btn-green" onclick="setZoneType('door')">Door Zone</button>
+                    <!-- Zone Editor Controls (Floating Overlay) -->
+                    <div id="zoneEditorControls" class="zone-controls hidden">
+                        <div class="zone-type-selector">
+                            <button class="btn btn-sm btn-blue active" onclick="setZoneType('bed')">Bed Zone</button>
+                            <button class="btn btn-sm btn-green" onclick="setZoneType('door')">Door Zone</button>
+                        </div>
+                        <div class="zone-actions">
+                            <button class="btn btn-sm btn-gray" onclick="clearZones()">Clear</button>
+                            <button class="btn btn-sm btn-primary" onclick="saveZones()">Save</button>
+                            <button class="btn btn-sm btn-cancel" onclick="toggleZoneEditor()">Cancel</button>
+                        </div>
+                        <div class="zone-help">Click to add points. Right-click to close shape. Blue = Sleep/Rest. Green
+                            = Exit.</div>
                     </div>
-                    <div class="zone-actions">
-                        <button class="btn btn-sm btn-gray" onclick="clearZones()">Clear All</button>
-                        <button class="btn btn-sm btn-primary" onclick="saveZones()">Save & Exit</button>
-                        <button class="btn btn-sm" onclick="toggleZoneEditor()">Cancel</button>
-                    </div>
-                    <div class="zone-help">Drag to draw logic zones. Blue = Sleep/Rest (No Alarm). Green = Exit (No
-                        Disappearance Alarm).</div>
                 </div>
             </div>
 

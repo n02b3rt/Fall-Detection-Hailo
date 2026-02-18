@@ -11,6 +11,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple
 
+import cv2
+import numpy as np
 import json
 import os
 import config
@@ -32,7 +34,7 @@ class PoseSnapshot:
     is_horizontal_pose: bool  # static pose check
     hip_shoulder_proximity: Optional[float]  # normalized vertical distance
     is_kneeling: bool = False  # kneeling pose detected
-    in_bed_zone: bool = False  # center of mass is inside a bed zone
+    in_bed_zone: bool = False  # center of mass is inside a bed polygon
 
 
 @dataclass
@@ -412,14 +414,29 @@ class FallDetector:
 
         return None
 
-    def _is_point_in_zones(self, point: Tuple[float, float], zones: List[List[float]]) -> bool:
-        """Check if normalized (x,y) point is inside any of the given zones [x1, y1, x2, y2]."""
+    def _is_point_in_zones(self, point: Tuple[float, float], zones: List[List[List[float]]]) -> bool:
+        """
+        Check if normalized (x,y) point is inside any of the given polygon zones.
+        Zones are lists of vertices: [[x,y], [x,y], ...].
+        """
         x, y = point
+        # Convert normalized point to virtual pixel coordinates for standard OpenCV check
+        # Use a virtual 1000x1000 grid for precision
+        pt_virt = (int(x * 1000), int(y * 1000))
+
         for zone in zones:
-            if len(zone) == 4:
-                x1, y1, x2, y2 = zone
-                if x1 <= x <= x2 and y1 <= y <= y2:
-                    return True
+            if len(zone) < 3:
+                continue # Not a polygon
+            
+            # Convert normalized vertices to virtual grid
+            vp_zone = np.array([(int(v[0] * 1000), int(v[1] * 1000)) for v in zone], dtype=np.int32)
+            vp_zone = vp_zone.reshape((-1, 1, 2))
+
+            # PointPolygonTest: >0 inside, =0 on edge, <0 outside
+            dist = cv2.pointPolygonTest(vp_zone, pt_virt, False)
+            if dist >= 0:
+                return True
+
         return False
 
     def _is_kneeling(self, kp_data: dict, torso_angle: Optional[float]) -> bool:

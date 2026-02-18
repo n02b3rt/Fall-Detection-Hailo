@@ -254,18 +254,24 @@ def _draw_zones(frame, zones):
     
     # Draw Bed Zones (Blue)
     for zone in zones.get('bed', []):
-        if len(zone) == 4:
-            x1, y1, x2, y2 = [int(v * s) for v, s in zip(zone, [w, h, w, h])]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(frame, "BED", (x1 + 5, y1 + 20), 
+        if len(zone) >= 3:
+            pts = np.array([[int(p[0] * w), int(p[1] * h)] for p in zone], np.int32)
+            pts = pts.reshape((-1, 1, 2))
+            cv2.polylines(frame, [pts], isClosed=True, color=(255, 0, 0), thickness=2)
+            
+            # Label at first point
+            cv2.putText(frame, "BED", tuple(pts[0][0]), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
 
     # Draw Door Zones (Green)
     for zone in zones.get('door', []):
-        if len(zone) == 4:
-            x1, y1, x2, y2 = [int(v * s) for v, s in zip(zone, [w, h, w, h])]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, "DOOR", (x1 + 5, y1 + 20), 
+        if len(zone) >= 3:
+            pts = np.array([[int(p[0] * w), int(p[1] * h)] for p in zone], np.int32)
+            pts = pts.reshape((-1, 1, 2))
+            cv2.polylines(frame, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
+            
+            # Label at first point
+            cv2.putText(frame, "DOOR", tuple(pts[0][0]), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
 
