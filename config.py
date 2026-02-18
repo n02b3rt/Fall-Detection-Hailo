@@ -22,6 +22,29 @@ KEYPOINT_RIGHT_SHOULDER = 6
 KEYPOINT_LEFT_HIP = 11
 KEYPOINT_RIGHT_HIP = 12
 
+KEYPOINT_NAMES = {
+    0: 'nose',
+    1: 'left_eye', 2: 'right_eye',
+    3: 'left_ear', 4: 'right_ear',
+    5: 'left_shoulder', 6: 'right_shoulder',
+    7: 'left_elbow', 8: 'right_elbow',
+    9: 'left_wrist', 10: 'right_wrist',
+    11: 'left_hip', 12: 'right_hip',
+    13: 'left_knee', 14: 'right_knee',
+    15: 'left_ankle', 16: 'right_ankle',
+}
+
+# Skeleton connection lines (for drawing)
+SKELETON_EDGES = [
+    (5, 7), (7, 9),   # Left Arm
+    (6, 8), (8, 10),  # Right Arm
+    (5, 6),           # Shoulders
+    (5, 11), (6, 12), # Torso sides
+    (11, 12),         # Hips
+    (11, 13), (13, 15), # Left Leg
+    (12, 14), (14, 16), # Right Leg
+]
+
 # =============================================================================
 # Fall Detection - Temporal Analysis
 # =============================================================================
