@@ -9,10 +9,12 @@ HEIGHT = 480
 # =============================================================================
 # Fall Detection - Keypoint Analysis
 # =============================================================================
-
-SCORE_THRESHOLD = 0.3  # Minimum keypoint confidence
-FALL_ASPECT_RATIO = 1.3  # BBox width/height ratio (horizontal = fall)
-KEYPOINT_PROXIMITY_THRESHOLD = 0.15  # Hip-shoulder vertical distance (normalized)
+# Fall Detection Thresholds
+FALL_SCORE_THRESHOLD_ALERT = 0.6  # Score to trigger ALERT state
+FALL_SCORE_THRESHOLD_ALARM = 0.8  # Score to trigger ALARM state
+FALL_ASPECT_RATIO = 1.2  # bbox width/height > 1.2 considered horizontal
+VERTICAL_ANGLE_THRESHOLD = 45.0  # degrees from vertical
+TORSO_COMPRESSION_THRESHOLD = 0.6 # Ratio of torso length / shoulder width (End-on fall) distance (normalized)
 
 # Keypoint indices (COCO format)
 KEYPOINT_LEFT_SHOULDER = 5

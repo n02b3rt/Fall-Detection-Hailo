@@ -33,6 +33,7 @@ class PoseSnapshot:
     visible_keypoints: int  # count of confident keypoints
     is_horizontal_pose: bool  # static pose check
     hip_shoulder_proximity: Optional[float]  # normalized vertical distance
+    torso_compression: Optional[float]  # Ratio of torso length / shoulder width
     is_kneeling: bool = False  # kneeling pose detected
     in_bed_zone: bool = False  # center of mass is inside a bed polygon
 
@@ -213,6 +214,7 @@ class FallDetector:
             descent_score=descent_score,
             stillness_score=stillness_score,
             kneeling=1.0 if snapshot.is_kneeling else 0.0,
+            compression=snapshot.torso_compression if snapshot.torso_compression else 0.0,
         )
 
     def update_no_person(self, timestamp: Optional[float] = None) -> dict:
@@ -314,10 +316,28 @@ class FallDetector:
         hip_shoulder_prox = self._compute_hip_shoulder_proximity(kp_data)
 
         # Kneeling detection
-        kneeling = self._is_kneeling(kp_data, torso_angle)
+        is_kneeling_pose = self._is_kneeling(kp_data, torso_angle)
         self._last_kp_data = kp_data
 
         # Zone Check
+        # 5. Check for Foreshortening (End-on Fall)
+        # Ratio of Vertical Torso Length / Horizontal Shoulder Width
+        torso_compression = None
+        ls, rs = kp_data.get('left_shoulder'), kp_data.get('right_shoulder')
+        lh, rh = kp_data.get('left_hip'), kp_data.get('right_hip')
+
+        if ls and rs and lh and rh:
+            # Mid-points
+            shoulder_y = (ls[1] + rs[1]) / 2
+            hip_y = (lh[1] + rh[1]) / 2
+            
+            vertical_torso_len = abs(shoulder_y - hip_y)
+            shoulder_width = abs(ls[0] - rs[0])
+            
+            # Avoid division by zero
+            if shoulder_width > 0.05: # Minimum width to be considered "visible"
+                torso_compression = vertical_torso_len / shoulder_width
+
         in_bed_zone = False
         if com:
             in_bed_zone = self._is_point_in_zones(com, self._zones.get('bed', []))
@@ -332,8 +352,9 @@ class FallDetector:
             visible_keypoints=visible_count,
             is_horizontal_pose=is_horizontal,
             hip_shoulder_proximity=hip_shoulder_prox,
-            is_kneeling=kneeling,
+            is_kneeling=is_kneeling_pose,
             in_bed_zone=in_bed_zone,
+            torso_compression=torso_compression,
         )
 
     def _extract_keypoints(self, bbox, keypoints) -> dict:
@@ -578,8 +599,18 @@ class FallDetector:
 
         # Horizontal bbox
         if snapshot.is_horizontal_pose:
-            score += 0.5
-
+            # Horizontal bbox or torso angle -> Strong indicator
+            score += 0.4
+        elif snapshot.torso_compression is not None and \
+             snapshot.torso_compression < config.TORSO_COMPRESSION_THRESHOLD:
+            # FORESHORTENED FALL (End-on view)
+            # Body is "vertical" in 2D but torso is compressed (lying towards/away from camera)
+            score += 0.5  # Strong indicator for this specific edge case
+        elif snapshot.hip_shoulder_proximity is not None and \
+             snapshot.hip_shoulder_proximity < 0.15:
+             # Fallback: Hips and shoulders very close vertically
+             score += 0.2
+        
         # Hip-shoulder proximity (closer = more horizontal body)
         if snapshot.hip_shoulder_proximity is not None:
             proximity_threshold = config.KEYPOINT_PROXIMITY_THRESHOLD

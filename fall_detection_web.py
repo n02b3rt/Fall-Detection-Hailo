@@ -333,12 +333,24 @@ def _draw_status_overlay(frame, user_data):
     # Detail scores (small text, bottom-left)
     if details:
         y_offset = h - 30
+        # Scores
         for key in ['velocity_score', 'pose_score', 'descent_score', 'stillness_score']:
             val = details.get(key, 0)
             short_key = key.replace('_score', '')[0].upper()
             cv2.putText(frame, f"{short_key}:{val:.1f}", (8, y_offset),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1)
             y_offset -= 14
+        
+        # Metadata (Compression / Kneeling)
+        comp = details.get('compression', 0.0)
+        kneel = details.get('kneeling', 0.0)
+        
+        meta_text = f"Comp:{comp:.2f} Kn:{int(kneel)}"
+        # Highlight compression if low (triggering)
+        comp_color = (0, 0, 255) if comp > 0 and comp < config.TORSO_COMPRESSION_THRESHOLD else (180, 180, 180)
+        
+        cv2.putText(frame, meta_text, (8, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, comp_color, 1)
 
 
 # =============================================================================
